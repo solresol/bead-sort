@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bead Sort Simulator</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            margin: 0;
+            padding: 20px;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        
+        .container {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            max-width: 900px;
+            width: 100%;
+        }
+        
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+        }
+        
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        
+        input[type="text"] {
+            flex: 1;
+            padding: 12px;
+            font-size: 16px;
+            border: none;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.9);
+            color: #333;
+            min-width: 200px;
+        }
+        
+        button {
+            padding: 12px 24px;
+            font-size: 16px;
+            border: none;
+            border-radius: 8px;
+            background: #4CAF50;
+            color: white;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+        }
+        
+        button:hover {
+            background: #45a049;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 8px rgba(0, 0, 0, 0.3);
+        }
+        
+        button:disabled {
+            background: #cccccc;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        
+        #canvas {
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.05);
+            display: block;
+            margin: 0 auto;
+        }
+        
+        .result {
+            margin-top: 20px;
+            text-align: center;
+            font-size: 1.2em;
+            opacity: 0;
+            transition: opacity 0.5s ease;
+        }
+        
+        .result.show {
+            opacity: 1;
+        }
+        
+        .info {
+            margin-top: 20px;
+            text-align: center;
+            font-size: 0.9em;
+            opacity: 0.8;
+        }
+        
+        .numbers-display {
+            margin: 10px 0;
+            text-align: center;
+            font-size: 1.1em;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Bead Sort Simulator</h1>
+        <div class="controls">
+            <input type="text" id="numbersInput" placeholder="Enter numbers (e.g., 5,3,8,2,7)" value="5,3,8,2,7">
+            <button id="goButton" onclick="startAnimation()">Drop Beads!</button>
+            <button onclick="reset()">Reset</button>
+        </div>
+        <div class="numbers-display" id="numbersDisplay"></div>
+        <canvas id="canvas" width="800" height="500"></canvas>
+        <div id="result" class="result"></div>
+        <div class="info">
+            Each number is represented by beads across horizontal poles. Watch gravity sort them!
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const numbersInput = document.getElementById('numbersInput');
+        const goButton = document.getElementById('goButton');
+        const resultDiv = document.getElementById('result');
+        const numbersDisplay = document.getElementById('numbersDisplay');
+        
+        let beads = [];
+        let poles = [];
+        let animating = false;
+        let numbers = [];
+        let maxNumber = 0;
+        
+        const BEAD_RADIUS = 10;
+        const POLE_WIDTH = 2;
+        const POLE_SPACING = 35;
+        const ROW_SPACING = 35;
+        const GRAVITY = 0.3;
+        const BOUNCE_DAMPING = 0.4;
+        const FRICTION = 0.98;
+        const MARGIN_X = 80;
+        const MARGIN_Y = 80;
+        
+        class Bead {
+            constructor(x, y, poleIndex, rowIndex) {
+                this.x = x;
+                this.y = y;
+                this.poleIndex = poleIndex;
+                this.rowIndex = rowIndex;
+                this.vy = 0;
+                this.settled = false;
+                this.targetY = null;
+                this.color = `hsl(${rowIndex * 30 + 180}, 70%, 60%)`;
+            }
+            
+            update(allBeads) {
+                if (this.settled) return;
+                
+                // Apply gravity
+                this.vy += GRAVITY;
+                this.vy *= FRICTION;
+                
+                // Check collision with other beads on same pole
+                let lowestAvailableY = canvas.height - MARGIN_Y - BEAD_RADIUS;
+                
+                allBeads.forEach(other => {
+                    if (other !== this && other.poleIndex === this.poleIndex && other.y > this.y) {
+                        const distance = other.y - this.y;
+                        if (distance < BEAD_RADIUS * 2.2) {
+                            lowestAvailableY = Math.min(lowestAvailableY, other.y - BEAD_RADIUS * 2.2);
+                        }
+                    }
+                });
+                
+                this.y += this.vy;
+                
+                // Check if hit bottom or another bead
+                if (this.y >= lowestAvailableY) {
+                    this.y = lowestAvailableY;
+                    if (Math.abs(this.vy) < 0.1) {
+                        this.settled = true;
+                        this.vy = 0;
+                    } else {
+                        this.vy *= -BOUNCE_DAMPING;
+                    }
+                }
+            }
+            
+            draw() {
+                // Draw shadow
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+                ctx.beginPath();
+                ctx.arc(this.x + 2, this.y + 2, BEAD_RADIUS, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Draw bead
+                const gradient = ctx.createRadialGradient(
+                    this.x - 3, this.y - 3, 0,
+                    this.x, this.y, BEAD_RADIUS
+                );
+                gradient.addColorStop(0, 'rgba(255, 255, 255, 0.8)');
+                gradient.addColorStop(0.3, this.color);
+                gradient.addColorStop(1, this.color);
+                
+                ctx.fillStyle = gradient;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, BEAD_RADIUS, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Draw outline
+                ctx.strokeStyle = 'rgba(0, 0, 0, 0.3)';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, BEAD_RADIUS, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+        }
+        
+        function parseNumbers() {
+            const input = numbersInput.value.trim();
+            if (!input) return [];
+            
+            return input.split(',')
+                .map(n => parseInt(n.trim()))
+                .filter(n => !isNaN(n) && n > 0)
+                .slice(0, 15); // Limit for display
+        }
+        
+        function setupBeads() {
+            beads = [];
+            numbers = parseNumbers();
+            
+            if (numbers.length === 0) {
+                numbersDisplay.textContent = '';
+                return;
+            }
+            
+            numbersDisplay.textContent = `Numbers to sort: ${numbers.join(', ')}`;
+            
+            maxNumber = Math.max(...numbers);
+            
+            // Create poles
+            poles = [];
+            for (let i = 0; i < maxNumber; i++) {
+                poles.push({
+                    x: MARGIN_X + i * POLE_SPACING,
+                    index: i
+                });
+            }
+            
+            // Create beads for each number (rows from bottom to top)
+            numbers.forEach((num, rowIndex) => {
+                const y = MARGIN_Y + rowIndex * ROW_SPACING;
+                
+                for (let poleIndex = 0; poleIndex < num; poleIndex++) {
+                    const x = MARGIN_X + poleIndex * POLE_SPACING;
+                    beads.push(new Bead(x, y, poleIndex, rowIndex));
+                }
+            });
+        }
+        
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw poles
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+            ctx.lineWidth = POLE_WIDTH;
+            poles.forEach(pole => {
+                ctx.beginPath();
+                ctx.moveTo(pole.x, MARGIN_Y - 20);
+                ctx.lineTo(pole.x, canvas.height - MARGIN_Y + 20);
+                ctx.stroke();
+            });
+            
+            // Draw pole numbers at bottom
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+            ctx.font = '12px Arial';
+            ctx.textAlign = 'center';
+            poles.forEach((pole, i) => {
+                ctx.fillText(i + 1, pole.x, canvas.height - MARGIN_Y + 35);
+            });
+            
+            // Draw original number labels on the left
+            if (!animating) {
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+                ctx.font = '14px Arial';
+                ctx.textAlign = 'right';
+                numbers.forEach((num, i) => {
+                    ctx.fillText(num, MARGIN_X - 20, MARGIN_Y + i * ROW_SPACING + 5);
+                });
+            }
+            
+            // Sort beads by y position for proper layering
+            beads.sort((a, b) => a.y - b.y);
+            
+            // Draw beads
+            beads.forEach(bead => bead.draw());
+        }
+        
+        function animate() {
+            if (!animating) return;
+            
+            let allSettled = true;
+            beads.forEach(bead => {
+                bead.update(beads);
+                if (!bead.settled) allSettled = false;
+            });
+            
+            draw();
+            
+            if (allSettled) {
+                animating = false;
+                goButton.disabled = false;
+                showResult();
+            } else {
+                requestAnimationFrame(animate);
+            }
+        }
+        
+        function showResult() {
+            // Count beads on each pole
+            const poleCounts = new Array(maxNumber).fill(0);
+            
+            beads.forEach(bead => {
+                poleCounts[bead.poleIndex]++;
+            });
+            
+            // Find the sorted numbers (from bottom to top)
+            const sortedNumbers = [];
+            let maxBeads = Math.max(...poleCounts);
+            
+            for (let level = maxBeads; level > 0; level--) {
+                let count = 0;
+                for (let pole = 0; pole < poleCounts.length; pole++) {
+                    if (poleCounts[pole] >= level) {
+                        count++;
+                    }
+                }
+                if (count > 0) {
+                    sortedNumbers.push(count);
+                }
+            }
+            
+            resultDiv.innerHTML = `<strong>Sorted result:</strong> ${sortedNumbers.join(', ')} <em>(reading from bottom to top)</em>`;
+            resultDiv.classList.add('show');
+        }
+        
+        function startAnimation() {
+            if (animating) return;
+            
+            setupBeads();
+            if (beads.length === 0) {
+                alert('Please enter valid positive numbers separated by commas.');
+                return;
+            }
+            
+            animating = true;
+            goButton.disabled = true;
+            resultDiv.classList.remove('show');
+            
+            // Give beads a slight random initial velocity for more natural fall
+            beads.forEach(bead => {
+                bead.vy = Math.random() * 0.5;
+            });
+            
+            animate();
+        }
+        
+        function reset() {
+            animating = false;
+            goButton.disabled = false;
+            resultDiv.classList.remove('show');
+            setupBeads();
+            draw();
+        }
+        
+        // Update display when typing
+        numbersInput.addEventListener('input', () => {
+            if (!animating) {
+                setupBeads();
+                draw();
+            }
+        });
+        
+        // Initial setup
+        setupBeads();
+        draw();
+    </script>
+</body>
+</html>
